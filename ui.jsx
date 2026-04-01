@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { render, Box, Text, useApp, useInput } from "ink";
-// Simple spinner — avoids @inkjs/ui dependency for one component
+import { renderSprite, RARITY_STARS, RARITY_COLORS } from "./sprites.js";
+import { existsSync, copyFileSync } from "fs";
+
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 function Spinner({ label }) {
   const [frame, setFrame] = useState(0);
@@ -10,10 +12,8 @@ function Spinner({ label }) {
   }, []);
   return <Text><Text color="cyan">{SPINNER_FRAMES[frame]}</Text> {label}</Text>;
 }
-import { renderSprite, RARITY_STARS, RARITY_COLORS } from "./sprites.js";
-import { existsSync, copyFileSync } from "fs";
 
-// ── Shared Components ───────────────────────────────────────────────────
+// ── Components ──────────────────────────────────────────────────────────
 
 function KeyHint({ children }) {
   return <Text italic dimColor>{children}</Text>;
@@ -86,8 +86,6 @@ function ConfirmSelect({ label, onConfirm, onCancel, onBack, isActive }) {
   );
 }
 
-// ── PreviewCard ─────────────────────────────────────────────────────────
-
 function PreviewCard({ species, rarity, eye, hat, shiny, stats }) {
   const color = RARITY_COLORS[rarity] ?? "white";
   const stars = RARITY_STARS[rarity] ?? "";
@@ -126,8 +124,6 @@ function PreviewCard({ species, rarity, eye, hat, shiny, stats }) {
     </Box>
   );
 }
-
-// ── Step Components ─────────────────────────────────────────────────────
 
 function ShowCurrentStep({ isActive }) {
   const { exit } = useApp();
@@ -233,20 +229,15 @@ function DoneStep({ messages, isActive }) {
   );
 }
 
-// ── Step Flow ───────────────────────────────────────────────────────────
-
 const STEP_ORDER = ["action", "species", "rarity", "eye", "hat", "shiny", "confirm"];
 
 function getPrevStep(current, rarity) {
   const idx = STEP_ORDER.indexOf(current);
   if (idx <= 0) return null;
   let prev = STEP_ORDER[idx - 1];
-  // Skip hat when going back if common
   if (prev === "hat" && rarity === "common") prev = "eye";
   return prev;
 }
-
-// ── Main App ────────────────────────────────────────────────────────────
 
 function App({ opts }) {
   const { exit } = useApp();
@@ -267,6 +258,8 @@ function App({ opts }) {
 
   const showStats = step === "showCurrent" || step === "result" || step === "done";
   const displayRoll = found ? found.result : { species, rarity, eye, hat, shiny, stats: currentRoll.stats };
+  const effectiveHat = rarity === "common" ? "none" : hat;
+  const buildTarget = (s = shiny) => ({ species, rarity, eye, hat: effectiveHat, shiny: s });
 
   const goBack = (toStep) => {
     const prev = toStep || getPrevStep(step, rarity);
@@ -379,8 +372,7 @@ function App({ opts }) {
             isActive={step === "shiny"}
             onConfirm={() => {
               setShiny(true);
-              const target = { species, rarity, eye, hat: rarity === "common" ? "none" : hat, shiny: true };
-              if (matches(currentRoll, target)) {
+              if (matches(currentRoll, buildTarget(true))) {
                 setDoneMessages(["Already matching! No changes needed."]);
                 setStep("done");
               } else {
@@ -389,8 +381,7 @@ function App({ opts }) {
             }}
             onCancel={() => {
               setShiny(false);
-              const target = { species, rarity, eye, hat: rarity === "common" ? "none" : hat, shiny: false };
-              if (matches(currentRoll, target)) {
+              if (matches(currentRoll, buildTarget(false))) {
                 setDoneMessages(["Already matching! No changes needed."]);
                 setStep("done");
               } else {
@@ -403,7 +394,7 @@ function App({ opts }) {
 
         {step === "confirm" && (
           <Box flexDirection="column">
-            <Text>Target: <Text bold>{species}</Text> / <Text bold>{rarity}</Text> / eye:{eye} / hat:{rarity === "common" ? "none" : hat}{shiny ? " / shiny" : ""}</Text>
+            <Text>Target: <Text bold>{species}</Text> / <Text bold>{rarity}</Text> / eye:{eye} / hat:{effectiveHat}{shiny ? " / shiny" : ""}</Text>
             {isClaudeRunning() && <Text color="yellow">⚠ Claude Code appears to be running. Quit it before patching.</Text>}
             <ConfirmSelect
               label="Search and apply?"
@@ -418,7 +409,7 @@ function App({ opts }) {
         {step === "search" && (
           <SearchStep
             userId={userId}
-            target={{ species, rarity, eye, hat: rarity === "common" ? "none" : hat, shiny }}
+            target={buildTarget()}
             bruteForce={bruteForce}
             onFound={(f) => { setFound(f); setStep("result"); }}
             onFail={() => {
@@ -460,8 +451,6 @@ function App({ opts }) {
     </Box>
   );
 }
-
-// ── Export ───────────────────────────────────────────────────────────────
 
 export async function runInteractiveUI(opts) {
   const { waitUntilExit } = render(<App opts={opts} />);
