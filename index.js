@@ -6,6 +6,18 @@ import { execSync } from "child_process";
 import { parseArgs } from "util";
 import chalk from "chalk";
 import { renderSprite, colorizeSprite, RARITY_STARS, RARITY_COLORS } from "./sprites.js";
+import {
+  EYES,
+  HATS,
+  RARITIES,
+  RARITY_LABELS,
+  RARITY_WEIGHTS,
+  SPECIES,
+  bruteForce,
+  findCurrentSalt,
+  matches,
+  rollFrom,
+} from "./lib/companion.js";
 import { findBinaryPath, findConfigPath, getPatchability } from "./lib/runtime.js";
 
 if (typeof Bun === "undefined") {
@@ -13,175 +25,9 @@ if (typeof Bun === "undefined") {
   process.exit(1);
 }
 
-// ── Constants (synced with Claude Code src/buddy/types.ts) ───────────────
-
-const ORIGINAL_SALT = "friend-2026-401";
-const SALT_LEN = ORIGINAL_SALT.length;
-
-const RARITIES = ["common", "uncommon", "rare", "epic", "legendary"];
-const RARITY_WEIGHTS = { common: 60, uncommon: 25, rare: 10, epic: 4, legendary: 1 };
-const RARITY_TOTAL = Object.values(RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
-const RARITY_FLOOR = { common: 5, uncommon: 15, rare: 25, epic: 35, legendary: 50 };
-
-const SPECIES = [
-  "duck", "goose", "blob", "cat", "dragon", "octopus", "owl", "penguin",
-  "turtle", "snail", "ghost", "axolotl", "capybara", "cactus", "robot",
-  "rabbit", "mushroom", "chonk",
-];
-
-const EYES = ["·", "✦", "×", "◉", "@", "°"];
-const HATS = ["none", "crown", "tophat", "propeller", "halo", "wizard", "beanie", "tinyduck"];
-const STAT_NAMES = ["DEBUGGING", "PATIENCE", "CHAOS", "WISDOM", "SNARK"];
-
-const RARITY_LABELS = {
-  common: "Common (60%)",
-  uncommon: "Uncommon (25%)",
-  rare: "Rare (10%)",
-  epic: "Epic (4%)",
-  legendary: "Legendary (1%)",
-};
-
-// ── PRNG (synced with Claude Code src/buddy/companion.ts) ────────────────
-
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function hashString(s) {
-  return Number(BigInt(Bun.hash(s)) & 0xffffffffn);
-}
-
-function pick(rng, arr) {
-  return arr[Math.floor(rng() * arr.length)];
-}
-
-function rollRarity(rng) {
-  let roll = rng() * RARITY_TOTAL;
-  for (const r of RARITIES) {
-    roll -= RARITY_WEIGHTS[r];
-    if (roll < 0) return r;
-  }
-  return "common";
-}
-
-function rollFrom(salt, userId) {
-  const rng = mulberry32(hashString(userId + salt));
-  const rarity = rollRarity(rng);
-  const species = pick(rng, SPECIES);
-  const eye = pick(rng, EYES);
-  const hat = rarity === "common" ? "none" : pick(rng, HATS);
-  const shiny = rng() < 0.01;
-
-  const floor = RARITY_FLOOR[rarity];
-  const peak = pick(rng, STAT_NAMES);
-  let dump = pick(rng, STAT_NAMES);
-  while (dump === peak) dump = pick(rng, STAT_NAMES);
-  const stats = {};
-  for (const name of STAT_NAMES) {
-    if (name === peak) stats[name] = Math.min(100, floor + 50 + Math.floor(rng() * 30));
-    else if (name === dump) stats[name] = Math.max(1, floor - 10 + Math.floor(rng() * 15));
-    else stats[name] = floor + Math.floor(rng() * 40);
-  }
-
-  return { rarity, species, eye, hat, shiny, stats };
-}
-
 function getUserId(configPath) {
   const config = JSON.parse(readFileSync(configPath, "utf-8"));
   return config.oauthAccount?.accountUuid ?? config.userID ?? "anon";
-}
-
-// ── Salt detection ───────────────────────────────────────────────────────
-
-function findCurrentSalt(binaryData, userId) {
-  if (binaryData.includes(Buffer.from(ORIGINAL_SALT))) return ORIGINAL_SALT;
-
-  const text = binaryData.toString("latin1");
-
-  // Scan for previously patched salts
-  const patterns = [
-    new RegExp(`x{${SALT_LEN - 8}}\\d{8}`, "g"),
-    new RegExp(`friend-\\d{4}-.{${SALT_LEN - 12}}`, "g"),
-  ];
-  for (const pat of patterns) {
-    let m;
-    while ((m = pat.exec(text)) !== null) {
-      if (m[0].length === SALT_LEN) return m[0];
-    }
-  }
-
-  const saltRegex = new RegExp(`"([a-zA-Z0-9_-]{${SALT_LEN}})"`, "g");
-  const candidates = new Set();
-  const markers = ["rollRarity", "CompanionBones", "inspirationSeed", "companionUserId"];
-  for (const marker of markers) {
-    const markerIdx = text.indexOf(marker);
-    if (markerIdx === -1) continue;
-    const window = text.slice(Math.max(0, markerIdx - 5000), Math.min(text.length, markerIdx + 5000));
-    let match;
-    while ((match = saltRegex.exec(window)) !== null) {
-      candidates.add(match[1]);
-    }
-  }
-
-  for (const c of candidates) {
-    if (/[\d-]/.test(c)) return c;
-  }
-
-  return null;
-}
-
-// ── Brute-force ──────────────────────────────────────────────────────────
-
-async function bruteForce(userId, target, onProgress) {
-  const startTime = Date.now();
-  let checked = 0;
-
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_";
-  const suffixLen = SALT_LEN - "friend-2026-".length;
-  if (suffixLen > 0 && suffixLen <= 4) {
-    const gen = function* (prefix, depth) {
-      if (depth === 0) { yield prefix; return; }
-      for (const ch of chars) yield* gen(prefix + ch, depth - 1);
-    };
-    for (const suffix of gen("", suffixLen)) {
-      const salt = `friend-2026-${suffix}`;
-      checked++;
-      const r = rollFrom(salt, userId);
-      if (matches(r, target)) return { salt, result: r, checked, elapsed: Date.now() - startTime };
-    }
-  }
-
-  for (let i = 0; i < 1_000_000_000; i++) {
-    const salt = String(i).padStart(SALT_LEN, "x");
-    checked++;
-    const r = rollFrom(salt, userId);
-    if (matches(r, target)) return { salt, result: r, checked, elapsed: Date.now() - startTime };
-
-    if (checked % 100_000 === 0) {
-      await new Promise((r) => setTimeout(r, 0));
-    }
-    if (checked % 5_000_000 === 0) {
-      if (onProgress) onProgress(checked, Date.now() - startTime);
-    }
-  }
-
-  return null;
-}
-
-function matches(roll, target) {
-  if (target.species && roll.species !== target.species) return false;
-  if (target.rarity && roll.rarity !== target.rarity) return false;
-  if (target.eye && roll.eye !== target.eye) return false;
-  if (target.hat && roll.hat !== target.hat) return false;
-  if (target.shiny !== undefined && roll.shiny !== target.shiny) return false;
-  return true;
 }
 
 // ── Binary patch ─────────────────────────────────────────────────────────
@@ -255,6 +101,48 @@ function clearCompanion(configPath) {
   writeFileSync(configPath, JSON.stringify(config, null, indent) + "\n");
 }
 
+function fail(message) {
+  console.error(message);
+  process.exit(1);
+}
+
+function readCurrentCompanion(binaryPath, userId) {
+  const binaryData = readFileSync(binaryPath);
+  const currentSalt = findCurrentSalt(binaryData);
+  if (!currentSalt) fail("  ✗ Could not find companion salt in binary.");
+  return { currentSalt, currentRoll: rollFrom(currentSalt, userId) };
+}
+
+function buildTargetFromArgs(args) {
+  const target = {};
+
+  if (args.species) {
+    if (!SPECIES.includes(args.species)) fail(`  ✗ Unknown species "${args.species}". Use --list.`);
+    target.species = args.species;
+  }
+  if (args.rarity) {
+    if (!RARITIES.includes(args.rarity)) fail(`  ✗ Unknown rarity "${args.rarity}". Use --list.`);
+    target.rarity = args.rarity;
+  }
+  if (args.eye) {
+    if (!EYES.includes(args.eye)) fail(`  ✗ Unknown eye "${args.eye}". Use --list.`);
+    target.eye = args.eye;
+  }
+  if (args.hat) {
+    if (!HATS.includes(args.hat)) fail(`  ✗ Unknown hat "${args.hat}". Use --list.`);
+    target.hat = args.hat;
+  }
+  if (args.shiny !== undefined) target.shiny = args.shiny;
+
+  return target;
+}
+
+function assertPatchable(binaryPath) {
+  const patchability = getPatchability(binaryPath);
+  if (!patchability.ok) fail(`  ✗ ${patchability.message}`);
+  return patchability;
+}
+
 // ── Display ──────────────────────────────────────────────────────────────
 
 function formatCompanionCard(result) {
@@ -287,13 +175,7 @@ function formatCompanionCard(result) {
 // ── Interactive mode ─────────────────────────────────────────────────────
 
 async function interactiveMode(binaryPath, configPath, userId) {
-  const binaryData = readFileSync(binaryPath);
-  const currentSalt = findCurrentSalt(binaryData, userId);
-  if (!currentSalt) {
-    console.error("✗ Could not find companion salt in binary.");
-    process.exit(1);
-  }
-  const currentRoll = rollFrom(currentSalt, userId);
+  const { currentSalt, currentRoll } = readCurrentCompanion(binaryPath, userId);
 
   const { runInteractiveUI } = await import("./ui.jsx");
   await runInteractiveUI({
@@ -326,83 +208,42 @@ async function nonInteractiveMode(args, binaryPath, configPath, userId) {
   console.log(`  User ID: ${userId.slice(0, 8)}...`);
 
   if (args.restore) {
-    const patchability = getPatchability(binaryPath);
-    if (!patchability.ok) {
-      console.error(`  ✗ ${patchability.message}`);
-      process.exit(1);
-    }
-
+    const patchability = assertPatchable(binaryPath);
     const { backupPath } = patchability;
-    if (!existsSync(backupPath)) {
-      console.error("  ✗ No backup found at", backupPath);
-      process.exit(1);
-    }
+    if (!existsSync(backupPath)) fail(`  ✗ No backup found at ${backupPath}`);
 
     try {
       copyFileSync(backupPath, binaryPath);
       resignBinary(binaryPath);
       clearCompanion(configPath);
     } catch (err) {
-      console.error(`  ✗ ${err.message}`);
-      process.exit(1);
+      fail(`  ✗ ${err.message}`);
     }
 
     console.log("  ✓ Restored. Restart Claude Code and run /buddy.");
     return;
   }
 
-  const binaryData = readFileSync(binaryPath);
-  const currentSalt = findCurrentSalt(binaryData, userId);
-  if (!currentSalt) {
-    console.error("  ✗ Could not find companion salt in binary.");
-    process.exit(1);
-  }
+  const { currentSalt, currentRoll } = readCurrentCompanion(binaryPath, userId);
 
   if (args.current) {
-    const result = rollFrom(currentSalt, userId);
     console.log(`\n  Current companion (salt: ${currentSalt}):`);
-    console.log(formatCompanionCard(result));
+    console.log(formatCompanionCard(currentRoll));
     console.log();
     return;
   }
 
-  const target = {};
-  if (args.species) {
-    if (!SPECIES.includes(args.species)) { console.error(`  ✗ Unknown species "${args.species}". Use --list.`); process.exit(1); }
-    target.species = args.species;
-  }
-  if (args.rarity) {
-    if (!RARITIES.includes(args.rarity)) { console.error(`  ✗ Unknown rarity "${args.rarity}". Use --list.`); process.exit(1); }
-    target.rarity = args.rarity;
-  }
-  if (args.eye) {
-    if (!EYES.includes(args.eye)) { console.error(`  ✗ Unknown eye "${args.eye}". Use --list.`); process.exit(1); }
-    target.eye = args.eye;
-  }
-  if (args.hat) {
-    if (!HATS.includes(args.hat)) { console.error(`  ✗ Unknown hat "${args.hat}". Use --list.`); process.exit(1); }
-    target.hat = args.hat;
-  }
-  if (args.shiny !== undefined) target.shiny = args.shiny;
-
-  if (Object.keys(target).length === 0) {
-    console.error("  ✗ Specify at least one target. Use --help for usage.");
-    process.exit(1);
-  }
+  const target = buildTargetFromArgs(args);
+  if (Object.keys(target).length === 0) fail("  ✗ Specify at least one target. Use --help for usage.");
 
   console.log(`  Target:  ${Object.entries(target).map(([k, v]) => `${k}=${v}`).join(" ")}\n`);
 
-  const currentRoll = rollFrom(currentSalt, userId);
   if (matches(currentRoll, target)) {
     console.log("  ✓ Already matches!\n" + formatCompanionCard(currentRoll));
     return;
   }
 
-  const patchability = getPatchability(binaryPath);
-  if (!patchability.ok) {
-    console.error(`  ✗ ${patchability.message}`);
-    process.exit(1);
-  }
+  const patchability = assertPatchable(binaryPath);
 
   if (isClaudeRunning()) {
     console.warn("  ⚠ Claude Code appears to be running. Quit it before patching to avoid issues.");
@@ -410,10 +251,7 @@ async function nonInteractiveMode(args, binaryPath, configPath, userId) {
 
   console.log("  Searching...");
   const found = await bruteForce(userId, target, null);
-  if (!found) {
-    console.error("  ✗ No matching salt found. Try relaxing constraints.");
-    process.exit(1);
-  }
+  if (!found) fail("  ✗ No matching salt found. Try relaxing constraints.");
   console.log(`  ✓ Found in ${found.checked.toLocaleString()} attempts (${(found.elapsed / 1000).toFixed(1)}s)`);
   console.log(formatCompanionCard(found.result));
 
@@ -423,8 +261,7 @@ async function nonInteractiveMode(args, binaryPath, configPath, userId) {
       copyFileSync(binaryPath, backupPath);
       console.log(`\n  Backup:  ${backupPath}`);
     } catch (err) {
-      console.error(`  ✗ ${err.message}`);
-      process.exit(1);
+      fail(`  ✗ ${err.message}`);
     }
   }
 
@@ -436,8 +273,7 @@ async function nonInteractiveMode(args, binaryPath, configPath, userId) {
     console.log("  Config:  companion data cleared");
     console.log("\n  Done! Restart Claude Code and run /buddy.\n");
   } catch (err) {
-    console.error(`  ✗ ${err.message}`);
-    process.exit(1);
+    fail(`  ✗ ${err.message}`);
   }
 }
 
@@ -461,14 +297,14 @@ async function main() {
 
   if (args.help) {
     console.log(`
-  buddy-reroll — Reroll your Claude Code companion
+  buddy-reroll — Reroll your Claude Code companion (Bun runtime required)
 
   Usage:
-    bunx buddy-reroll                  Interactive mode (recommended)
+    bunx buddy-reroll                               Interactive mode (recommended)
     bunx buddy-reroll --species dragon --rarity legendary --eye ✦ --shiny
-    bunx buddy-reroll --list           Show all available options
-    bunx buddy-reroll --current        Show current companion
-    bunx buddy-reroll --restore        Restore original binary
+    bunx buddy-reroll --list                        Show all available options
+    bunx buddy-reroll --current                     Show current companion
+    bunx buddy-reroll --restore                     Restore original binary
 
   Flags (all optional — omit to leave random):
     --species <name>    ${SPECIES.join(", ")}
@@ -491,16 +327,10 @@ async function main() {
   }
 
   const binaryPath = findBinaryPath();
-  if (!binaryPath) {
-    console.error("✗ Could not find Claude Code binary. Checked PATH and known install locations.");
-    process.exit(1);
-  }
+  if (!binaryPath) fail("✗ Could not find Claude Code binary. Checked PATH and known install locations.");
 
   const configPath = findConfigPath();
-  if (!configPath) {
-    console.error("✗ Could not find Claude Code config file. Checked ~/.claude/.config.json and ~/.claude.json.");
-    process.exit(1);
-  }
+  if (!configPath) fail("✗ Could not find Claude Code config file. Checked ~/.claude/.config.json and ~/.claude.json.");
 
   const userId = getUserId(configPath);
   if (userId === "anon") {

@@ -5,8 +5,16 @@ Reroll your [Claude Code](https://docs.anthropic.com/en/docs/claude-code) `/budd
 ## Install
 
 ```bash
+# Recommended: install and run with Bun
 bun install -g buddy-reroll
+
+# One-off execution
+bunx buddy-reroll
 ```
+
+`buddy-reroll` is a Bun-based CLI. The package can be published through npm-compatible registries, but execution still requires `bun` to be installed because the runtime uses `Bun.hash()`.
+
+If you install the package with `npm` or `pnpm`, that only changes the package manager used to place files on disk. It does not replace the Bun runtime requirement.
 
 ## Usage
 
@@ -39,11 +47,12 @@ buddy-reroll --restore
 
 ## Requirements
 
-- [Bun](https://bun.sh) (uses `Bun.hash()` to match Claude Code's internal hashing)
+- [Bun](https://bun.sh) runtime (uses `Bun.hash()` to match Claude Code's internal hashing)
 - Claude Code
 
 ## Runtime Notes
 
+- `buddy-reroll` is intentionally Bun-only in runtime for now. `npm` and `pnpm` are not drop-in runtime replacements.
 - `buddy-reroll` now resolves Claude installs exposed through small wrapper scripts such as `/usr/bin/claude -> /opt/claude-code/bin/claude`.
 - `--current`, `--help`, and `--list` work with read-only/system-managed Claude installs.
 - `--restore` and any reroll command require write access to the real Claude binary because the tool creates `<binary>.backup` and patches the executable in place.

@@ -6,6 +6,11 @@
   "bin": {
     "buddy-reroll": "index.js"
   },
+  "scripts": {
+    "help": "bun run index.js --help",
+    "list": "bun run index.js --list",
+    "verify": "bun run help && bun run list && npm pack --dry-run"
+  },
   "files": [
     "index.js",
     "lib",
