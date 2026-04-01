@@ -1,12 +1,14 @@
 {
   "name": "buddy-reroll",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Reroll your Claude Code buddy companion to any species/rarity/eye/hat/shiny combo",
   "type": "module",
   "bin": {
     "buddy-reroll": "index.js"
   },
-  "files": ["index.js"],
+  "files": [
+    "index.js"
+  ],
   "engines": {
     "bun": ">=1.0.0"
   },
@@ -15,7 +17,13 @@
     "type": "git",
     "url": "https://github.com/grayashh/buddy-reroll"
   },
-  "keywords": ["claude", "claude-code", "buddy", "companion", "reroll"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "buddy",
+    "companion",
+    "reroll"
+  ],
   "dependencies": {
     "@clack/prompts": "^1.2.0"
   }
