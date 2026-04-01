@@ -100,8 +100,11 @@ function getClaudeConfigDir() {
 }
 
 function findBinaryPath() {
+  const isWin = platform() === "win32";
+
   try {
-    const allPaths = execSync("which -a claude 2>/dev/null", { encoding: "utf-8" }).trim().split("\n");
+    const cmd = isWin ? "where.exe claude 2>nul" : "which -a claude 2>/dev/null";
+    const allPaths = execSync(cmd, { encoding: "utf-8" }).trim().split("\n");
     for (const entry of allPaths) {
       try {
         const resolved = realpathSync(entry.trim());
@@ -110,8 +113,12 @@ function findBinaryPath() {
     }
   } catch {}
 
-  const versionsDir = join(homedir(), ".local", "share", "claude", "versions");
-  if (existsSync(versionsDir)) {
+  const versionsDirs = [
+    join(homedir(), ".local", "share", "claude", "versions"),
+    ...(isWin ? [join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "Claude", "versions")] : []),
+  ];
+  for (const versionsDir of versionsDirs) {
+    if (!existsSync(versionsDir)) continue;
     try {
       const versions = readdirSync(versionsDir)
         .filter((f) => !f.includes(".backup"))
@@ -133,6 +140,12 @@ function findConfigPath() {
   const defaultPath = join(home, ".claude.json");
   if (existsSync(defaultPath)) return defaultPath;
 
+  // Windows: check AppData\Roaming\Claude
+  if (platform() === "win32" && process.env.APPDATA) {
+    const appDataPath = join(process.env.APPDATA, "Claude", "config.json");
+    if (existsSync(appDataPath)) return appDataPath;
+  }
+
   return null;
 }
 
@@ -146,9 +159,9 @@ function getUserId(configPath) {
 function findCurrentSalt(binaryData, userId) {
   if (binaryData.includes(Buffer.from(ORIGINAL_SALT))) return ORIGINAL_SALT;
 
-  const text = binaryData.toString("utf-8");
+  const text = binaryData.toString("latin1");
 
-  // Scan for previously patched salts (our known patterns)
+  // Scan for previously patched salts
   const patterns = [
     new RegExp(`x{${SALT_LEN - 8}}\\d{8}`, "g"),
     new RegExp(`friend-\\d{4}-.{${SALT_LEN - 12}}`, "g"),
@@ -160,7 +173,6 @@ function findCurrentSalt(binaryData, userId) {
     }
   }
 
-  // Contextual scan near companion code markers
   const saltRegex = new RegExp(`"([a-zA-Z0-9_-]{${SALT_LEN}})"`, "g");
   const candidates = new Set();
   const markers = ["rollRarity", "CompanionBones", "inspirationSeed", "companionUserId"];
@@ -174,7 +186,6 @@ function findCurrentSalt(binaryData, userId) {
     }
   }
 
-  // Filter: real salts contain digits or hyphens (rules out "projectSettings" etc.)
   for (const c of candidates) {
     if (/[\d-]/.test(c)) return c;
   }
@@ -233,6 +244,10 @@ function matches(roll, target) {
 
 function isClaudeRunning() {
   try {
+    if (platform() === "win32") {
+      const out = execSync('tasklist /FI "IMAGENAME eq claude.exe" /FO CSV 2>nul', { encoding: "utf-8" });
+      return out.toLowerCase().includes("claude.exe");
+    }
     const out = execSync("pgrep -af claude 2>/dev/null", { encoding: "utf-8" });
     return out.split("\n").some((line) => !line.includes("buddy-reroll") && line.trim().length > 0);
   } catch {
@@ -261,8 +276,20 @@ function patchBinary(binaryPath, oldSalt, newSalt) {
 
   if (count === 0) throw new Error(`Salt "${oldSalt}" not found in binary`);
 
-  writeFileSync(binaryPath, data);
-  return count;
+  const isWin = platform() === "win32";
+  const maxRetries = isWin ? 3 : 1;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      writeFileSync(binaryPath, data);
+      return count;
+    } catch (err) {
+      if (isWin && (err.code === "EACCES" || err.code === "EPERM" || err.code === "EBUSY") && attempt < maxRetries - 1) {
+        execSync("timeout /t 2 /nobreak >nul 2>&1", { shell: true, stdio: "ignore" });
+        continue;
+      }
+      throw new Error(`Failed to write binary: ${err.message}${isWin ? " (ensure Claude Code is fully closed)" : ""}`);
+    }
+  }
 }
 
 function resignBinary(binaryPath) {
@@ -305,7 +332,8 @@ function formatCompanionCard(result) {
   }
 
   for (const [k, v] of Object.entries(result.stats)) {
-    const bar = colorFn("█".repeat(Math.round(v / 10)) + "░".repeat(10 - Math.round(v / 10)));
+    const filled = Math.min(10, Math.max(0, Math.round(v / 10)));
+    const bar = colorFn("█".repeat(filled) + "░".repeat(10 - filled));
     lines.push(`  ${k.padEnd(10)} ${bar} ${String(v).padStart(3)}`);
   }
 
