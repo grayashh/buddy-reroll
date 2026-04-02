@@ -1,6 +1,6 @@
 {
   "name": "buddy-reroll",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Reroll your Claude Code buddy companion to any species/rarity/eye/hat/shiny combo",
   "type": "module",
   "bin": {

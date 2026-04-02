@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.2](https://github.com/grayashh/buddy-reroll/compare/v0.3.1...v0.3.2) (2026-04-02)
+
+
+### Bug Fixes
+
+* preserve file permissions after patch, force exit on DoneStep keypress ([8cb32c3](https://github.com/grayashh/buddy-reroll/commit/8cb32c3bc39b242302a065cbc5b60b0b5697c12f))
+
 ## [0.3.1](https://github.com/grayashh/buddy-reroll/compare/v0.3.0...v0.3.1) (2026-04-02)
 
 
