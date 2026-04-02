@@ -40,8 +40,12 @@ if (!IS_BUN && !IS_APPLY_HOOK) {
 }
 
 function getUserId(configPath) {
-  const config = JSON.parse(readFileSync(configPath, "utf-8"));
-  return config.oauthAccount?.accountUuid ?? config.userID ?? "anon";
+  try {
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    return config.oauthAccount?.accountUuid ?? config.userID ?? "anon";
+  } catch {
+    return "anon";
+  }
 }
 
 // ── Binary patch ─────────────────────────────────────────────────────────
@@ -143,12 +147,15 @@ function resignBinary(binaryPath) {
 }
 
 function clearCompanion(configPath) {
-  const raw = readFileSync(configPath, "utf-8");
-  const config = JSON.parse(raw);
-  delete config.companion;
-  delete config.companionMuted;
-  const indent = raw.match(/^(\s+)"/m)?.[1] ?? "  ";
-  writeFileSync(configPath, JSON.stringify(config, null, indent) + "\n");
+  try {
+    const raw = readFileSync(configPath, "utf-8");
+    const config = JSON.parse(raw);
+    if (!config.companion && !config.companionMuted) return;
+    delete config.companion;
+    delete config.companionMuted;
+    const indent = raw.match(/^(\s+)"/m)?.[1] ?? "  ";
+    writeFileSync(configPath, JSON.stringify(config, null, indent) + "\n");
+  } catch {}
 }
 
 function fail(message) {
@@ -485,7 +492,9 @@ async function main() {
         }
       }
       clearCompanion(cp);
-    } catch {}
+    } catch (err) {
+      process.stderr.write(`buddy-reroll --apply-hook failed: ${err.message}\n`);
+    }
     process.exit(0);
   }
 

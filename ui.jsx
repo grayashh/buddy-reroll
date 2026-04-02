@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { render, Box, Text, useApp, useInput } from "ink";
 import { renderSprite, RARITY_STARS, RARITY_COLORS } from "./sprites.js";
 import { existsSync, copyFileSync } from "fs";
@@ -125,19 +125,41 @@ function PreviewCard({ species, rarity, eye, hat, shiny, stats }) {
   );
 }
 
-function ShowCurrentStep({ isActive }) {
+function ExitOnKey({ isActive, children }) {
   const { exit } = useApp();
+  const exiting = useRef(false);
 
-  useInput(() => {
+  const doExit = useCallback(() => {
+    if (exiting.current) return;
+    exiting.current = true;
     exit();
-    setTimeout(() => process.exit(0), 100);
-  }, { isActive });
+    setTimeout(() => process.exit(0), 200);
+  }, [exit]);
 
+  useInput(() => doExit(), { isActive });
+
+  useEffect(() => {
+    if (!isActive) return;
+    const fallback = () => doExit();
+    process.stdin.once("data", fallback);
+    const timer = setTimeout(() => doExit(), 30000);
+    return () => {
+      process.stdin.removeListener("data", fallback);
+      clearTimeout(timer);
+    };
+  }, [isActive, doExit]);
+
+  return children;
+}
+
+function ShowCurrentStep({ isActive }) {
   return (
-    <Box flexDirection="column">
-      <Text color="green">✓ Current companion shown above.</Text>
-      <KeyHint>Press any key to exit</KeyHint>
-    </Box>
+    <ExitOnKey isActive={isActive}>
+      <Box flexDirection="column">
+        <Text color="green">✓ Current companion shown above.</Text>
+        <KeyHint>Press any key to exit</KeyHint>
+      </Box>
+    </ExitOnKey>
   );
 }
 
@@ -214,30 +236,26 @@ function SearchStep({ userId, target, bruteForce, onFound, onFail, isActive }) {
 }
 
 function DoneStep({ messages, isActive }) {
-  const { exit } = useApp();
   const hasErrors = messages.some((msg) => msg.type === "error");
 
-  useInput(() => {
-    exit();
-    setTimeout(() => process.exit(0), 100);
-  }, { isActive });
-
   return (
-    <Box flexDirection="column">
-      {messages.map((msg) => (
-        <Text key={`${msg.type}-${msg.text}`} color={msg.type === "error" ? "red" : "green"}>
-          {msg.type === "error" ? "✗ " : "✓ "}{msg.text}
-        </Text>
-      ))}
-      <Box marginTop={1}>
-        <Text bold>
-          {hasErrors
-            ? "Something went wrong — check the issue above and try again."
-            : "All set! Your buddy will stick around even after updates. Restart Claude Code and say /buddy!"}
-        </Text>
+    <ExitOnKey isActive={isActive}>
+      <Box flexDirection="column">
+        {messages.map((msg) => (
+          <Text key={`${msg.type}-${msg.text}`} color={msg.type === "error" ? "red" : "green"}>
+            {msg.type === "error" ? "✗ " : "✓ "}{msg.text}
+          </Text>
+        ))}
+        <Box marginTop={1}>
+          <Text bold>
+            {hasErrors
+              ? "Something went wrong — check the issue above and try again."
+              : "All set! Your buddy will stick around even after updates. Restart Claude Code and say /buddy!"}
+          </Text>
+        </Box>
+        <KeyHint>Press any key to exit</KeyHint>
       </Box>
-      <KeyHint>Press any key to exit</KeyHint>
-    </Box>
+    </ExitOnKey>
   );
 }
 
