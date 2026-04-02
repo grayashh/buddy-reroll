@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/grayashh/buddy-reroll/compare/v0.2.1...v0.3.0) (2026-04-02)
+
+
+### Features
+
+* multi-worker search, stats customization, auto-patch hooks, Node.js interactive fallback ([6b9a89a](https://github.com/grayashh/buddy-reroll/commit/6b9a89a0c824093b645f9eaa23675d0d789c9a67))
+
 ## [0.2.1](https://github.com/grayashh/buddy-reroll/compare/v0.2.0...v0.2.1) (2026-04-01)
 
 
