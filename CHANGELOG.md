@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.4](https://github.com/grayashh/buddy-reroll/compare/v0.3.3...v0.3.4) (2026-04-02)
+
+
+### Bug Fixes
+
+* harden all user-facing code paths against corruption, exit, and data loss ([653b29c](https://github.com/grayashh/buddy-reroll/commit/653b29ca173056c3fccd66e50a5dcc965dc86f8e))
+* production hardening — rollback-safe patch, atomic config writes, cancel-safe search ([3169fb9](https://github.com/grayashh/buddy-reroll/commit/3169fb98796ca0fdf147ae330b18f95baa497127))
+
 ## [0.3.3](https://github.com/grayashh/buddy-reroll/compare/v0.3.2...v0.3.3) (2026-04-02)
 
 
