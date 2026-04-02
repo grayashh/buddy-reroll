@@ -97,29 +97,24 @@ function patchBinary(binaryPath, oldSalt, newSalt) {
   if (count === 0) throw new Error(`Salt "${oldSalt}" not found in binary`);
 
   const isWin = platform() === "win32";
+  const tmpPath = binaryPath + ".tmp";
   const maxRetries = isWin ? 3 : 1;
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const tmpPath = binaryPath + ".tmp";
       writeFileSync(tmpPath, data, { mode: originalMode });
-      try {
-        renameSync(tmpPath, binaryPath);
-      } catch {
-        if (existsSync(binaryPath + ".backup")) {
-          try { unlinkSync(binaryPath); } catch {}
-        }
-        renameSync(tmpPath, binaryPath);
+
+      const verify = readFileSync(tmpPath);
+      if (verify.indexOf(Buffer.from(newSalt)) === -1) {
+        try { unlinkSync(tmpPath); } catch {}
+        throw new Error("Patch verification failed — new salt not found in temp file");
       }
 
-      chmodSync(binaryPath, originalMode);
-
-      const verify = readFileSync(binaryPath);
-      const found = verify.indexOf(Buffer.from(newSalt));
-      if (found === -1) throw new Error("Patch verification failed — new salt not found after write");
-
+      renameSync(tmpPath, binaryPath);
+      try { chmodSync(binaryPath, originalMode); } catch {}
       return count;
     } catch (err) {
-      try { unlinkSync(binaryPath + ".tmp"); } catch {}
+      try { unlinkSync(tmpPath); } catch {}
       if (isWin && (err.code === "EACCES" || err.code === "EPERM" || err.code === "EBUSY") && attempt < maxRetries - 1) {
         sleepMs(2000);
         continue;
@@ -127,7 +122,7 @@ function patchBinary(binaryPath, oldSalt, newSalt) {
       if (isWin && (err.code === "EPERM" || err.code === "EBUSY")) {
         throw new Error("Can't write — Claude Code might still be running. Close it and try again.");
       }
-      throw new Error(`Failed to write: ${err.message}`);
+      throw err;
     }
   }
 }
@@ -154,7 +149,10 @@ function clearCompanion(configPath) {
     delete config.companion;
     delete config.companionMuted;
     const indent = raw.match(/^(\s+)"/m)?.[1] ?? "  ";
-    writeFileSync(configPath, JSON.stringify(config, null, indent) + "\n");
+    const mode = statSync(configPath).mode;
+    const tmpPath = configPath + ".tmp";
+    writeFileSync(tmpPath, JSON.stringify(config, null, indent) + "\n", { mode });
+    renameSync(tmpPath, configPath);
   } catch {}
 }
 
@@ -467,13 +465,13 @@ async function main() {
   }
 
   if (args["apply-hook"]) {
+    let mutated = false;
     try {
       const stored = readStoredSalt();
       if (!stored) process.exit(0);
       const bp = findBinaryPath();
       const cp = findConfigPath();
       if (!bp || !cp) process.exit(0);
-      const uid = getUserId(cp);
       const binaryData = readFileSync(bp);
       const currentSalt = findCurrentSalt(binaryData);
       if (!currentSalt) process.exit(0);
@@ -483,17 +481,20 @@ async function main() {
       const backupPath = patchability.backupPath;
       if (!existsSync(backupPath)) copyFileSync(bp, backupPath);
       patchBinary(bp, currentSalt, stored.salt);
+      mutated = true;
       if (platform() === "darwin") {
         try {
           execFileSync("codesign", ["-s", "-", "--force", bp], { stdio: "ignore", timeout: 30000 });
         } catch {
           copyFileSync(backupPath, bp);
+          try { chmodSync(bp, statSync(backupPath).mode); } catch {}
           process.exit(1);
         }
       }
       clearCompanion(cp);
     } catch (err) {
       process.stderr.write(`buddy-reroll --apply-hook failed: ${err.message}\n`);
+      process.exit(mutated ? 1 : 0);
     }
     process.exit(0);
   }

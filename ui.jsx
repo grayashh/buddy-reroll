@@ -191,40 +191,44 @@ function SpeciesStep({ speciesList, current, onChange, onSubmit, onBack, isActiv
 
 function SearchStep({ userId, target, bruteForce, onFound, onFail, isActive }) {
   const [progress, setProgress] = useState("");
-  const cancelRef = useRef(false);
+  const abortRef = useRef(null);
   const hasStarted = useRef(false);
   const { exit } = useApp();
 
   useInput((input, key) => {
     if (key.escape) {
-      cancelRef.current = true;
+      if (abortRef.current) abortRef.current.abort();
       exit();
+      setTimeout(() => process.exit(0), 200);
     }
   }, { isActive });
 
   useEffect(() => {
     if (hasStarted.current) return;
     hasStarted.current = true;
+    const ac = new AbortController();
+    abortRef.current = ac;
     (async () => {
       let found;
       try {
         found = await bruteForce(userId, target, (attempts, elapsed, expected, workers) => {
-          if (!cancelRef.current) {
+          if (!ac.signal.aborted) {
             const pct = Math.min(100, Math.round((attempts / expected) * 100));
             const rate = attempts / (elapsed / 1000);
             const rateStr = rate >= 1e6 ? `${(rate / 1e6).toFixed(1)}M` : `${(rate / 1e3).toFixed(1)}k`;
             const eta = Math.max(0, (expected - attempts) / rate);
             setProgress(`${pct}% | ${rateStr} tries/s | ~${Math.round(eta)}s left | ${workers} cores`);
           }
-        });
+        }, ac.signal);
       } catch {
-        if (!cancelRef.current) onFail();
+        if (!ac.signal.aborted) onFail();
         return;
       }
-      if (cancelRef.current) return;
+      if (ac.signal.aborted) return;
       if (found) onFound(found);
       else onFail();
     })();
+    return () => ac.abort();
   }, [bruteForce, userId, target, onFound, onFail]);
 
   return (
