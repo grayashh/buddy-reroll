@@ -490,7 +490,22 @@ async function main() {
   }
 
   if (args.doctor) {
-    console.log(`\n${formatDoctorReport(getDoctorReport(), "buddy-reroll doctor")}\n`);
+    const report = getDoctorReport();
+    if (report.status === "not-executable" && report.binaryPath) {
+      try {
+        const { chmodSync, statSync } = await import("fs");
+        const mode = statSync(report.binaryPath).mode | 0o111;
+        chmodSync(report.binaryPath, mode);
+        console.log(`\n  ✓ Fixed: restored execute permission on ${report.binaryPath}`);
+        const fixed = getDoctorReport();
+        console.log(`\n${formatDoctorReport(fixed, "buddy-reroll doctor")}\n`);
+      } catch (err) {
+        console.log(`\n${formatDoctorReport(report, "buddy-reroll doctor")}\n`);
+        console.log(`  ⚠ Auto-fix failed: ${err.message}\n    Run manually: chmod +x "${report.binaryPath}"\n`);
+      }
+    } else {
+      console.log(`\n${formatDoctorReport(report, "buddy-reroll doctor")}\n`);
+    }
     return;
   }
 
