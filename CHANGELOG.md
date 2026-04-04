@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/grayashh/buddy-reroll/compare/v0.3.4...v0.3.5) (2026-04-04)
+
+
+### Bug Fixes
+
+* use FNV-1a hash to match Claude Code binary ([aa77a3a](https://github.com/grayashh/buddy-reroll/commit/aa77a3a639deb40beb2738a1e14c54bd9a7606c7))
+
 ## [0.3.4](https://github.com/grayashh/buddy-reroll/compare/v0.3.3...v0.3.4) (2026-04-02)
 
 
