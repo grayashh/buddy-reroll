@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/grayashh/buddy-reroll/compare/v0.3.6...v0.3.7) (2026-04-05)
+
+
+### Bug Fixes
+
+* replace misleading percentage progress with time-based display ([5575e2a](https://github.com/grayashh/buddy-reroll/commit/5575e2ade770e1ecc2bc671dda484322d5fc2e3f))
+
 ## [0.3.6](https://github.com/grayashh/buddy-reroll/compare/v0.3.5...v0.3.6) (2026-04-05)
 
 
