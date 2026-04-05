@@ -155,11 +155,16 @@ export async function runInteractiveUI(opts) {
   let found;
   try {
     found = await bruteForce(userId, target, (attempts, elapsed, expected, workers) => {
-      const pct = Math.min(100, Math.round((attempts / expected) * 100));
-      const rate = attempts / (elapsed / 1000);
-      const rateStr = rate >= 1e6 ? `${(rate / 1e6).toFixed(1)}M` : `${(rate / 1e3).toFixed(1)}k`;
-      const eta = Math.max(0, (expected - attempts) / rate);
-      process.stdout.write(`\r  ${pct}% | ${rateStr} tries/s | ~${Math.round(eta)}s left | ${workers} cores`);
+      const elapsedSec = elapsed / 1000;
+      const rate = attempts / elapsedSec;
+      const rateStr = rate >= 1e6 ? `${(rate / 1e6).toFixed(1)}M/s` : `${(rate / 1e3).toFixed(1)}k/s`;
+      const fmtTime = (s) => s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+      if (attempts >= expected) {
+        process.stdout.write(`\r  Still searching... ${fmtTime(elapsedSec)} | ${rateStr} | taking longer than usual`);
+      } else {
+        const remaining = (expected - attempts) / rate;
+        process.stdout.write(`\r  Searching... ${fmtTime(elapsedSec)} | ${rateStr} | ~${fmtTime(remaining)} left`);
+      }
     });
   } catch (err) {
     console.log(chalk.red(`\n✗ ${err.message}`));

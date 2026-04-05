@@ -213,11 +213,16 @@ function SearchStep({ userId, target, bruteForce, onFound, onFail, isActive }) {
       try {
         found = await bruteForce(userId, target, (attempts, elapsed, expected, workers) => {
           if (!ac.signal.aborted) {
-            const pct = Math.min(100, Math.round((attempts / expected) * 100));
-            const rate = attempts / (elapsed / 1000);
-            const rateStr = rate >= 1e6 ? `${(rate / 1e6).toFixed(1)}M` : `${(rate / 1e3).toFixed(1)}k`;
-            const eta = Math.max(0, (expected - attempts) / rate);
-            setProgress(`${pct}% | ${rateStr} tries/s | ~${Math.round(eta)}s left | ${workers} cores`);
+            const elapsedSec = elapsed / 1000;
+            const rate = attempts / elapsedSec;
+            const rateStr = rate >= 1e6 ? `${(rate / 1e6).toFixed(1)}M/s` : `${(rate / 1e3).toFixed(1)}k/s`;
+            const fmtTime = (s) => s < 60 ? `${Math.round(s)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+            if (attempts >= expected) {
+              setProgress(`Still searching... ${fmtTime(elapsedSec)} | ${rateStr} | taking longer than usual`);
+            } else {
+              const remaining = (expected - attempts) / rate;
+              setProgress(`Searching... ${fmtTime(elapsedSec)} | ${rateStr} | ~${fmtTime(remaining)} left`);
+            }
           }
         }, ac.signal);
       } catch {
