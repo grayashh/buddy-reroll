@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.6](https://github.com/grayashh/buddy-reroll/compare/v0.3.5...v0.3.6) (2026-04-05)
+
+
+### Bug Fixes
+
+* findCurrentSalt accepts purely-alphabetic patched salts ([#12](https://github.com/grayashh/buddy-reroll/issues/12)) ([209c598](https://github.com/grayashh/buddy-reroll/commit/209c598fb66ec61321e5b0170fa2060b0f97ebc3))
+* revert to wyhash — Claude Code binary uses Bun.hash, not FNV-1a ([0a68c02](https://github.com/grayashh/buddy-reroll/commit/0a68c026ca407a670249fcb2be13983f3aa46c7a))
+
 ## [0.3.5](https://github.com/grayashh/buddy-reroll/compare/v0.3.4...v0.3.5) (2026-04-04)
 
 
